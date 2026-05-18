@@ -1,13 +1,14 @@
 package product_controller
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 	"github.com/mhmmd-iqbal/go-rest-gin/models"
-	"github.com/mhmmd-iqbal/go-rest-gin/repositories/product_repositories"
 	"github.com/mhmmd-iqbal/go-rest-gin/requests/product_request"
+	"github.com/mhmmd-iqbal/go-rest-gin/services/product_service"
 )
 
 func Index(c *gin.Context) {
@@ -15,7 +16,6 @@ func Index(c *gin.Context) {
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 	search := c.Query("search")
 
-	// Prevent invalid values
 	if page < 1 {
 		page = 1
 	}
@@ -24,11 +24,10 @@ func Index(c *gin.Context) {
 		limit = 10
 	}
 
-	products, total, err := product_repositories.GetProducts(search, page, limit)
+	products, total, err := product_service.GetProducts(search, page, limit)
+
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -61,10 +60,15 @@ func Show(c *gin.Context) {
 		return
 	}
 
-	product, err := product_repositories.GetProductBySKU(sku)
+	product, err := product_service.GetDetailProduct(sku)
 
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+		if errors.Is(err, errors.New("product not found")) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
+
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -96,23 +100,14 @@ func Create(c *gin.Context) {
 		return
 	}
 
-	_, err := product_repositories.GetProductBySKU(input.SKU)
-
-	if err == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Product with the SKU : " + input.SKU + " already exists"})
-		return
-	}
-
-	mappingProduct := models.Product{
-		Name:        input.Name,
-		Description: input.Description,
-		Price:       input.Price,
-		SKU:         input.SKU,
-	}
-
-	product, err := product_repositories.CreateProduct(&mappingProduct)
+	product, err := product_service.CreateProduct(input)
 
 	if err != nil {
+		if errors.Is(err, errors.New("product already exists")) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Product with the SKU : " + input.SKU + " already exists"})
+			return
+		}
+
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -145,28 +140,14 @@ func Update(c *gin.Context) {
 		return
 	}
 
-	product, err := product_repositories.GetProductBySKU(sku)
+	product, err := product_service.UpdateProduct(sku, input)
 
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
-		return
-	}
+		if errors.Is(err, errors.New("product not found")) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
 
-	if input.Name != nil {
-		product.Name = *input.Name
-	}
-
-	if input.Description != nil {
-		product.Description = *input.Description
-	}
-
-	if input.Price != nil {
-		product.Price = *input.Price
-	}
-
-	product, err = product_repositories.UpdateProductBySKU(sku, product)
-
-	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -189,14 +170,12 @@ func Delete(c *gin.Context) {
 		return
 	}
 
-	_, err := product_repositories.GetProductBySKU(sku)
+	if err := product_service.DeleteProduct(sku); err != nil {
+		if errors.Is(err, errors.New("product not found")) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
+			return
+		}
 
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
-		return
-	}
-
-	if err := product_repositories.DeleteProductBySKU(sku); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

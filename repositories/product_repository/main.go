@@ -1,4 +1,4 @@
-package product_repositories
+package product_repository
 
 import (
 	"github.com/mhmmd-iqbal/go-rest-gin/models"
@@ -47,14 +47,14 @@ func GetProductBySKU(sku string) (*models.Product, error) {
 }
 
 func CreateProduct(product *models.Product) (*models.Product, error) {
-	if err := models.DB.Create(&product).Error; err != nil {
+	if err := models.DB.Create(product).Error; err != nil {
 		return nil, err
 	}
 	return product, nil
 }
 
 func UpdateProductBySKU(sku string, product *models.Product) (*models.Product, error) {
-	if err := models.DB.Where("sku = ?", sku).Updates(&product).Error; err != nil {
+	if err := models.DB.Where("sku = ?", sku).Updates(product).Error; err != nil {
 		return nil, err
 	}
 	return product, nil
