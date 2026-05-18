@@ -1,14 +1,19 @@
 package main
 
 import (
+	"log"
+
 	"github.com/gin-gonic/gin"
 	"github.com/mhmmd-iqbal/go-rest-gin/models"
 	"github.com/mhmmd-iqbal/go-rest-gin/routes/product_route"
 )
 
 func main() {
+	if err := models.ConnectDatabase(); err != nil {
+		log.Fatalf("database connection failed: %v", err)
+	}
+
 	r := gin.Default()
-	models.ConnectDatabase()
 
 	// Routes
 	// r.GET("/products", product_controller.Index)

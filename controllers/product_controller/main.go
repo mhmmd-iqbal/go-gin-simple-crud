@@ -6,13 +6,11 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/mhmmd-iqbal/go-rest-gin/models"
+	"github.com/mhmmd-iqbal/go-rest-gin/repositories/product_repositories"
 	"github.com/mhmmd-iqbal/go-rest-gin/requests/product_request"
 )
 
 func Index(c *gin.Context) {
-	var products []models.Product
-	var total int64
-
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "10"))
 	search := c.Query("search")
@@ -26,33 +24,8 @@ func Index(c *gin.Context) {
 		limit = 10
 	}
 
-	offset := (page - 1) * limit
-
-	query := models.DB.Model(&models.Product{})
-
-	// Search by name or sku
-	if search != "" {
-		query = query.Where(
-			"name LIKE ? OR sku LIKE ?",
-			"%"+search+"%",
-			"%"+search+"%",
-		)
-	}
-
-	if err := query.Count(&total).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": err.Error(),
-		})
-		return
-	}
-
-	// Get paginated data
-	if err := query.
-		Limit(limit).
-		Offset(offset).
-		Order("id DESC").
-		Find(&products).Error; err != nil {
-
+	products, total, err := product_repositories.GetProducts(search, page, limit)
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error": err.Error(),
 		})
@@ -81,7 +54,6 @@ func Index(c *gin.Context) {
 }
 
 func Show(c *gin.Context) {
-	var Product models.Product
 	sku := c.Param("sku")
 
 	if sku == "" {
@@ -89,16 +61,18 @@ func Show(c *gin.Context) {
 		return
 	}
 
-	if err := models.DB.Where("sku = ?", sku).First(&Product).Error; err != nil {
+	product, err := product_repositories.GetProductBySKU(sku)
+
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 		return
 	}
 
 	var productResponse = models.DetailProductResponse{
-		SKU:         Product.SKU,
-		Name:        Product.Name,
-		Description: Product.Description,
-		Price:       Product.Price,
+		SKU:         product.SKU,
+		Name:        product.Name,
+		Description: product.Description,
+		Price:       product.Price,
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": productResponse, "message": "Product retrieved successfully"})
@@ -122,31 +96,35 @@ func Create(c *gin.Context) {
 		return
 	}
 
-	var Product models.Product
+	_, err := product_repositories.GetProductBySKU(input.SKU)
 
-	if err := models.DB.Where("sku = ?", input.SKU).First(&Product).Error; err == nil {
+	if err == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Product with the SKU : " + input.SKU + " already exists"})
 		return
 	}
 
-	Product.Name = input.Name
-	Product.Description = input.Description
-	Product.Price = input.Price
-	Product.SKU = input.SKU
+	mappingProduct := models.Product{
+		Name:        input.Name,
+		Description: input.Description,
+		Price:       input.Price,
+		SKU:         input.SKU,
+	}
 
-	if err := models.DB.Create(&Product).Error; err != nil {
+	product, err := product_repositories.CreateProduct(&mappingProduct)
+
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	var productResponse = models.DetailProductResponse{
-		SKU:         Product.SKU,
-		Name:        Product.Name,
-		Description: Product.Description,
-		Price:       Product.Price,
+		SKU:         product.SKU,
+		Name:        product.Name,
+		Description: product.Description,
+		Price:       product.Price,
 	}
 
-	c.JSON(http.StatusCreated, map[string]any{
+	c.JSON(http.StatusCreated, gin.H{
 		"data":    productResponse,
 		"message": "Product created successfully",
 	})
@@ -167,42 +145,43 @@ func Update(c *gin.Context) {
 		return
 	}
 
-	var Product models.Product
+	product, err := product_repositories.GetProductBySKU(sku)
 
-	if err := models.DB.Where("sku = ?", sku).First(&Product).Error; err != nil {
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 		return
 	}
 
-	if input.Name != "" {
-		Product.Name = input.Name
+	if input.Name != nil {
+		product.Name = *input.Name
 	}
 
-	if input.Description != "" {
-		Product.Description = input.Description
+	if input.Description != nil {
+		product.Description = *input.Description
 	}
 
-	if input.Price > 0 {
-		Product.Price = input.Price
+	if input.Price != nil {
+		product.Price = *input.Price
 	}
 
-	if err := models.DB.Updates(&Product).Error; err != nil {
+	product, err = product_repositories.UpdateProductBySKU(sku, product)
+
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	var productResponse = models.DetailProductResponse{
-		SKU:         Product.SKU,
-		Name:        Product.Name,
-		Description: Product.Description,
-		Price:       Product.Price,
+		SKU:         product.SKU,
+		Name:        product.Name,
+		Description: product.Description,
+		Price:       product.Price,
 	}
 
 	c.JSON(http.StatusOK, gin.H{"data": productResponse, "message": "Product updated successfully"})
 }
 
 func Delete(c *gin.Context) {
-	var product models.Product
 	sku := c.Param("sku")
 
 	if sku == "" {
@@ -210,12 +189,14 @@ func Delete(c *gin.Context) {
 		return
 	}
 
-	if err := models.DB.Where("sku = ?", sku).First(&product).Error; err != nil {
+	_, err := product_repositories.GetProductBySKU(sku)
+
+	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "Product not found"})
 		return
 	}
 
-	if err := models.DB.Delete(&product).Error; err != nil {
+	if err := product_repositories.DeleteProductBySKU(sku); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
